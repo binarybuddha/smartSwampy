@@ -2,7 +2,7 @@
 This is amateur code written by binBuddha in 2015-2016.
 The intent of this program is to logically control an evaporative/swamp cooler using a Particle.io photon MCU socketed into a Particle.io relay shield.
 The cooler has a two-winding motor for high and low speeds, and a water circulation pump.
-The relay further away from the photon, R1, is connected to the pump
+The relay furthest away from the photon, R1, is connected to the pump
 The relay second furthest from the photon, R2, is connected using the SPDT configuration of the relay, on goes to the high speed motor winding, off connects the common to the low speed motor winding.
 The relay third furthest from the photon, R2, is used as an on/off switch, connecting to the common pin of R2. This was done to make it electrically impossible to energize both motor windings simultaenously creating a fire hazard.
 The relay closest to the photon is unused.
