@@ -14,8 +14,9 @@ The relay closest to the photon is unused.
 
 
 // These variables are unique per user/installation, and will need to be changed if you impliment this code
+// This code logs to this public URL: https://thingspeak.com/channels/48967
 // Thingspeak API key
-ThingSpeakLibrary::ThingSpeak thingspeak ("P4IFEG7BYVN05FXE");
+ThingSpeakLibrary::ThingSpeak thingspeak ("YOUR KEY HERE");
 
 // Constants
 const int _comfyTemp = 68;              // This is the lowest comfortable temp, and the cutoff point when the cooler should stop cooling.
@@ -27,7 +28,7 @@ const double humidityVariance = .55;    // This is the decimal percentage varian
 bool  _pump_on;                         // Is the water circulation pump running?
 int  _fan_speed = 2;                    // What is the fan speed- 0=off, 1=low, 2=high
 double fcast_h = 84;                    // What is the forecase high for the day
-int _forceControl = 0;                  // Manual user override in minutes
+int _holdDownTimer = 0;                 // Prevent excessive cooler change operations, value is in minutes
 double lastAction = 0;                  // UNIX timestamp of the last operation change of the cooler
 int sensorReadCount = 0;                // Counter for sensor readings, used to count up to 5 before trying to read the sensor again
 int pubCounter = 0;                     // Counter for publishing info to the particle.io dashboard
@@ -39,28 +40,28 @@ int FANONOFF = D5;                      // R3, used as an ON/OFF to the common p
 DHT dht_u(7, DHTTYPE);                  // The upstairs DHT22 is connected to digital pin 7 on the photon
 DHT dht_d(2, DHTTYPE);                  // The downstairs DHT22 is connect to digital ping 2 on the photon
 
-float humidity_upstairs;                // Current sensor reading of the upstairs humidity from the DHT22
-float humidity_upstairs_hist[10] = {0}; // Historic sensor readings of the upstairs humidity from the DHT22
+double humidity_upstairs;                // Current sensor reading of the upstairs humidity from the DHT22
+double humidity_upstairs_hist[10] = {0}; // Historic sensor readings of the upstairs humidity from the DHT22
 
 double temp_upstairs;                   // Current sensor reading of the upstairs temp from the DHT22
 double temp_upstairs_hist[10] = {0};    // Historic sensor readings of the upstairs temp from the DHT22
 
-float humidity_downstairs;              // Current sensor reading of the downstairs humidity from the DHT22
-float humidity_downstairs_hist[10] = {0};// Historic sensor readings of the downstairs humidity from the DHT22
+double humidity_downstairs;              // Current sensor reading of the downstairs humidity from the DHT22
+double humidity_downstairs_hist[10] = {0};// Historic sensor readings of the downstairs humidity from the DHT22
 
-float temp_downstairs;                  // Current sensor reading of the downstairs temp from the DHT22
-float temp_downstairs_hist[10] = {0};   // Historic sensor readings of the downstairs temp from the DHT22
+double temp_downstairs;                  // Current sensor reading of the downstairs temp from the DHT22
+double temp_downstairs_hist[10] = {0};   // Historic sensor readings of the downstairs temp from the DHT22
 
-float humidity_upstairs_avg;            // Variable used to hold the mean of the upstairs humidity
+double humidity_upstairs_avg;            // Variable used to hold the mean of the upstairs humidity
 double humidity_upstairs_avg_calc;      // Variable used to hold the sum of the upstairs humidity used to calc the mean
 
-float temp_upstairs_avg;                // Variable used to hold the mean of the upstairs humidity
+double temp_upstairs_avg;                // Variable used to hold the mean of the upstairs humidity
 double temp_upstairs_avg_calc;          // Variable used to hold the sum of the upstairs temp used to calc the mean
 
-float humidity_downstairs_avg;          // Variable used to hold the mean of the downstairs humidity
+double humidity_downstairs_avg;          // Variable used to hold the mean of the downstairs humidity
 double humidity_downstairs_avg_calc;    // Variable used to hold the sum of the downstairs humidity used to calc the mean
 
-float temp_downstairs_avg;              // Variable used to hold the mean of the downstairs temp
+double temp_downstairs_avg;              // Variable used to hold the mean of the downstairs temp
 double temp_downstairs_avg_calc;        // Variable used to hold the sum of the downstairs temp used to calc the mean
 
 double lastGotWeather   = 0;            // Unix timestamp of last time the webhook data was returned
@@ -105,7 +106,7 @@ void pubFlow(String pub)
         delay(pubDiff*1000);
     }
     // Publish, if it doesn't work, keep trying 3 more times.
-    while(!Particle.publish(pub, "U" + String(temp_upstairs_hist[0]).substring(0,4) + " D" + String(temp_downstairs_hist[0]).substring(0,4) + "FS:" + String(_fan_speed) )) {
+    while(!Particle.publish(pub, "U" + String(temp_upstairs_hist[0]).substring(0,4) + "(Avg:" + String(temp_upstairs_avg).substring(0,4) + ") D" + String(temp_downstairs_hist[0]).substring(0,4) + "(Avg:" + String(temp_downstairs_avg).substring(0,4) + ") FS:" + String(_fan_speed) + " HDT:" + String(_holdDownTimer) )) {
         delay(4200);
         pubCounter++;
         if (pubCounter > 4){
@@ -120,31 +121,31 @@ void doButtonControl_handler(const char *event, const char *data)
 {
     //Whitelist for DO button operations
     if (strcmp(data,"COOLHIGH")==0) {
-        _forceControl = 100;
+        _holdDownTimer = 100;
         relayControl("COOLHIGH");
     }
     if (strcmp(data,"COOLLOW")==0) {
-        _forceControl = 100;
+        _holdDownTimer = 100;
         relayControl("COOLLOW");
     }
     if (strcmp(data,"FANHIGH")==0) {
-        _forceControl = 100;
+        _holdDownTimer = 100;
         relayControl("FANHIGH");
     }
     if (strcmp(data,"FANLOW")==0) {
-        _forceControl = 100;
+        _holdDownTimer = 100;
         relayControl("FANLOW");
     }
     if (strcmp(data,"PUMP")==0) {
-        _forceControl = 100;
+        _holdDownTimer = 100;
         relayControl("PUMP");
     }
     if (strcmp(data,"OFF")==0) {
-        _forceControl = 100;
+        _holdDownTimer = 100;
         relayControl("OFF");
     }
     if (strcmp(data,"SMART")==0) {
-        _forceControl = 0;
+        _holdDownTimer = 0;
     }
     
 }
@@ -228,6 +229,7 @@ int relayControl(String command)
             digitalWrite(PUMP, LOW);
             pubFlow("ALL OFF");
         }
+    _holdDownTimer = 10;
     return 1;
     }
 
@@ -235,9 +237,9 @@ int relayControl(String command)
 void loop()
 {
 
-    // Skip smartness if force control is in effect.
-    if (_forceControl>0){
-        _forceControl--;
+    // Decrement holdDownTimer
+    if (_holdDownTimer>0){
+        _holdDownTimer--;
     } 
     
     // If it's been more than 3 hours since the last forecast check, get it again.
@@ -357,7 +359,7 @@ void loop()
 	}
 
     // Set latest Thingspeak non-sensor values
-    bool valSetPump = thingspeak.recordValue(7, String(_forceControl));
+    bool valSetPump = thingspeak.recordValue(7, String(_holdDownTimer));
     bool valSetFSpd = thingspeak.recordValue(8, String(_fan_speed));
     
     // Send the ThingSpeak values off
@@ -380,11 +382,11 @@ void loop()
     
     // If the temp drops below the comfortable temperature, turn the bloody thing off!    
     
-    if ( (temp_upstairs_hist[0] < _comfyTemp || temp_downstairs_hist[0] < _comfyTemp ) && _fan_speed && _forceControl == 0) {
+    if ( (temp_upstairs_hist[0] < _comfyTemp || temp_downstairs_hist[0] < _comfyTemp ) && _fan_speed && _holdDownTimer == 0) {
         relayControl("PUMP");
-        pubFlow("Brr, Utmp is:" + String(temp_upstairs_hist[0]).substring(0,4) + ", Dtmp is:" + String(temp_downstairs_hist[0]).substring(0,4) + ", UAvg:" + String(temp_upstairs_avg).substring(0,4) + ", DAvg:" + String(temp_downstairs_avg).substring(0,4) );
+        pubFlow("Brr, Utmp is:" + String(temp_upstairs_hist[0]).substring(0,4) + "(" + String(temp_upstairs_avg).substring(0,4) + ") Dtmp is:" + String(temp_downstairs_hist[0]).substring(0,4) + "(" + String(temp_downstairs_avg).substring(0,4) + ")"  );
     } else {
-        if (temp_upstairs_hist[0] > _comfyTemp && _forceControl == 0) {
+        if (temp_upstairs_hist[0] > _comfyTemp && _holdDownTimer == 0) {
         // If the temp surpasses _comfyTemp, and the forecast is hot (>80), cool it down!   
             if (temp_upstairs_hist[0] - _comfyTemp > 5){
                 if ( _fan_speed  < 2 ){
@@ -398,10 +400,13 @@ void loop()
                 }
             }
         } else {
-            pubFlow("temp[0] > _comfyTemp && _forceControl == 0 Wasn't true");
+            pubFlow("No change to cooler operation.");
         }
     }
-    // Wait a minute before running the loop again.
-    delay(1*(60*1000));
+    // Wait until the next minute before running the loop again.
+    while(Time.second() != 0){
+        delay(10);
+    }
+    delay(1100);
     
 }
