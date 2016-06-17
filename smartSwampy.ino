@@ -2,7 +2,7 @@
 This is amateur code written by binBuddha in 2015-2016.
 The intent of this program is to logically control an evaporative/swamp cooler using a Particle.io photon MCU socketed into a Particle.io relay shield.
 The cooler has a two-winding motor for high and low speeds, and a water circulation pump.
-The relay furthest away from the photon, R1, is connected to the pump
+The relay further away from the photon, R1, is connected to the pump
 The relay second furthest from the photon, R2, is connected using the SPDT configuration of the relay, on goes to the high speed motor winding, off connects the common to the low speed motor winding.
 The relay third furthest from the photon, R2, is used as an on/off switch, connecting to the common pin of R2. This was done to make it electrically impossible to energize both motor windings simultaenously creating a fire hazard.
 The relay closest to the photon is unused.
@@ -22,7 +22,7 @@ ThingSpeakLibrary::ThingSpeak thingspeak ("YOUR KEY HERE");
 const int _comfyTemp = 68;              // This is the lowest comfortable temp, and the cutoff point when the cooler should stop cooling.
 const int lastActionInterval = 10;      // To prevent erratic switching by the cooler, prevent changes to cooler operation less than this many minutes
 const double tempVariance = .1;         // This is the decimal percentage variance for temperature (.1 = 10%), if a sensor reading is +/- this variance, it won't be used.
-const double humidityVariance = .55;    // This is the decimal percentage variance for humidity (.55 = 55%), if a sensor reading is +/- this variance, it won't be used.
+const double humidityVariance = .25;    // This is the decimal percentage variance for humidity (.25 = 25%), if a sensor reading is +/- this variance, it won't be used.
 
 // Cooler status vars
 bool  _pump_on;                         // Is the water circulation pump running?
@@ -42,31 +42,35 @@ DHT dht_d(2, DHTTYPE);                  // The downstairs DHT22 is connect to di
 
 double humidity_upstairs;                // Current sensor reading of the upstairs humidity from the DHT22
 double humidity_upstairs_hist[10] = {0}; // Historic sensor readings of the upstairs humidity from the DHT22
+bool   humidity_upstairs_outlier;       // Only discard a single outlier of the mean
 
 double temp_upstairs;                   // Current sensor reading of the upstairs temp from the DHT22
 double temp_upstairs_hist[10] = {0};    // Historic sensor readings of the upstairs temp from the DHT22
+bool   temp_upstairs_outlier;       // Only discard a single outlier of the mean
 
 double humidity_downstairs;              // Current sensor reading of the downstairs humidity from the DHT22
 double humidity_downstairs_hist[10] = {0};// Historic sensor readings of the downstairs humidity from the DHT22
+bool   humidity_downstairs_outlier;       // Only discard a single outlier of the mean
 
 double temp_downstairs;                  // Current sensor reading of the downstairs temp from the DHT22
 double temp_downstairs_hist[10] = {0};   // Historic sensor readings of the downstairs temp from the DHT22
+bool   temp_downstairs_outlier;       // Only discard a single outlier of the mean
 
 double humidity_upstairs_avg;            // Variable used to hold the mean of the upstairs humidity
-double humidity_upstairs_avg_calc;      // Variable used to hold the sum of the upstairs humidity used to calc the mean
+double humidity_upstairs_avg_calc;       // Variable used to hold the sum of the upstairs humidity used to calc the mean
 
 double temp_upstairs_avg;                // Variable used to hold the mean of the upstairs humidity
-double temp_upstairs_avg_calc;          // Variable used to hold the sum of the upstairs temp used to calc the mean
+double temp_upstairs_avg_calc;           // Variable used to hold the sum of the upstairs temp used to calc the mean
 
 double humidity_downstairs_avg;          // Variable used to hold the mean of the downstairs humidity
-double humidity_downstairs_avg_calc;    // Variable used to hold the sum of the downstairs humidity used to calc the mean
+double humidity_downstairs_avg_calc;     // Variable used to hold the sum of the downstairs humidity used to calc the mean
 
 double temp_downstairs_avg;              // Variable used to hold the mean of the downstairs temp
-double temp_downstairs_avg_calc;        // Variable used to hold the sum of the downstairs temp used to calc the mean
+double temp_downstairs_avg_calc;         // Variable used to hold the sum of the downstairs temp used to calc the mean
 
-double lastGotWeather   = 0;            // Unix timestamp of last time the webhook data was returned
+double lastGotWeather   = 0;             // Unix timestamp of last time the webhook data was returned
 
-double lastPub   = 0;                   // Unix time of last time published to particle.io's dashboard
+double lastPub   = 0;                    // Unix time of last time published to particle.io's dashboard
 
 // This is the run-once setup for the photon
 void setup()
@@ -141,7 +145,7 @@ void doButtonControl_handler(const char *event, const char *data)
         relayControl("PUMP");
     }
     if (strcmp(data,"OFF")==0) {
-        _holdDownTimer = 100;
+        _holdDownTimer = 60;
         relayControl("OFF");
     }
     if (strcmp(data,"SMART")==0) {
@@ -330,32 +334,45 @@ void loop()
 	temp_downstairs_avg = temp_downstairs_avg_calc / 10;
 
 
-	// Insert latest readings into slot [0] of the hist arrays if within 15% variance
-	if ( (humidity_upstairs / humidity_upstairs_avg) > (1-humidityVariance) && (humidity_upstairs / humidity_upstairs_avg) < (1+humidityVariance)){
+	// Insert latest readings into slot [0] of the hist arrays if within variance or if a previously detected outlier was set
+	// If a reading is outside variance toss it, log to the dashboard, and set outlier to true
+	
+	// Humidity
+	if ( humidity_upstairs_outlier || ( (humidity_upstairs / humidity_upstairs_avg) > (1-humidityVariance) && (humidity_upstairs / humidity_upstairs_avg) < (1+humidityVariance) ) ){
+        humidity_upstairs_hist[0] = humidity_upstairs;
 	    bool valSetUpstairsHumidity = thingspeak.recordValue(4, String(humidity_upstairs).substring(0,4));
+	    humidity_upstairs_outlier = false;
 	}else{
         pubFlow("humidity_upstairs outside mean: " + String(humidity_upstairs) + ". mean: " + String(humidity_upstairs_avg));
+        humidity_upstairs_outlier = true;
 	}
 
-	if ( (humidity_downstairs / humidity_downstairs_avg) > (1-humidityVariance) && (humidity_downstairs / humidity_downstairs_avg) < (1+humidityVariance) ){
+	if ( humidity_downstairs_outlier || ( (humidity_downstairs / humidity_downstairs_avg) > (1-humidityVariance) && (humidity_downstairs / humidity_downstairs_avg) < (1+humidityVariance) ) ){
 	    humidity_downstairs_hist[0] = humidity_downstairs;
 	    bool valSetDownstairsHumidity = thingspeak.recordValue(1, String(humidity_downstairs).substring(0,4));
+	    humidity_downstairs_outlier = false;
 	}else{
         pubFlow("humidity_downstairs outside mean: " + String(humidity_downstairs) + ". mean: " + String(humidity_downstairs_avg));
+        humidity_downstairs_outlier = true;
 	}
-
-	if ( (temp_upstairs / temp_upstairs_avg) > (1-tempVariance) && (temp_upstairs / temp_upstairs_avg) < (1+tempVariance)){
+	
+	// Temp
+	if ( temp_upstairs_outlier || ( (temp_upstairs / temp_upstairs_avg) > (1-tempVariance) && (temp_upstairs / temp_upstairs_avg) < (1+tempVariance) ) ){
 	    temp_upstairs_hist[0] = temp_upstairs;
 	    bool valSetUpstairsTemp = thingspeak.recordValue(5, String(temp_upstairs_hist[0]).substring(0,4));
+	    temp_upstairs_outlier = false;
 	}else{
         pubFlow("temp_upstairs outside mean: " + String(temp_upstairs) + ". mean: " + String(temp_upstairs_avg));
+        temp_upstairs_outlier = true;
 	}
 
-	if ( (temp_downstairs / temp_downstairs_avg) > (1-tempVariance) && (temp_downstairs / temp_downstairs_avg) < (1+tempVariance)){
+	if ( temp_downstairs_outlier || ( (temp_downstairs / temp_downstairs_avg) > (1-tempVariance) && (temp_downstairs / temp_downstairs_avg) < (1+tempVariance) ) ){
 	    temp_downstairs_hist[0] = temp_downstairs;
 	    bool valSetDownstairsTemp = thingspeak.recordValue(2, String(temp_downstairs).substring(0,4));
+	    temp_downstairs_outlier = false;
 	}else{
         pubFlow("temp_downstairs outside mean: " + String(temp_downstairs) + ". mean: " + String(temp_downstairs_avg));
+        temp_downstairs_outlier = true;
 	}
 
     // Set latest Thingspeak non-sensor values
@@ -381,7 +398,6 @@ void loop()
 	}
     
     // If the temp drops below the comfortable temperature, turn the bloody thing off!    
-    
     if ( (temp_upstairs_hist[0] < _comfyTemp || temp_downstairs_hist[0] < _comfyTemp ) && _fan_speed && _holdDownTimer == 0) {
         relayControl("PUMP");
         pubFlow("Brr, Utmp is:" + String(temp_upstairs_hist[0]).substring(0,4) + "(" + String(temp_upstairs_avg).substring(0,4) + ") Dtmp is:" + String(temp_downstairs_hist[0]).substring(0,4) + "(" + String(temp_downstairs_avg).substring(0,4) + ")"  );
