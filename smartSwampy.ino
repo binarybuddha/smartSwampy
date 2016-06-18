@@ -16,17 +16,17 @@ The relay closest to the photon is unused.
 // These variables are unique per user/installation, and will need to be changed if you impliment this code
 // This code logs to this public URL: https://thingspeak.com/channels/48967
 // Thingspeak API key
-ThingSpeakLibrary::ThingSpeak thingspeak ("YOUR KET HERE");
+ThingSpeakLibrary::ThingSpeak thingspeak ("YOUR KEY HERE");
 
 // Constants
 const int _comfyTemp = 68;              // This is the lowest comfortable temp, and the cutoff point when the cooler should stop cooling.
 const int lastActionInterval = 10;      // To prevent erratic switching by the cooler, prevent changes to cooler operation less than this many minutes
 const double tempVariance = .1;         // This is the decimal percentage variance for temperature (.1 = 10%), if a sensor reading is +/- this variance, it won't be used.
-const double humidityVariance = .25;    // This is the decimal percentage variance for humidity (.25 = 25%), if a sensor reading is +/- this variance, it won't be used.
+const double humidityVariance = .45;    // This is the decimal percentage variance for humidity (.25 = 25%), if a sensor reading is +/- this variance, it won't be used.
 
 // Cooler status vars
 bool  _pump_on;                         // Is the water circulation pump running?
-int  _fan_speed = 2;                    // What is the fan speed- 0=off, 1=low, 2=high
+int  _fan_speed = 0;                    // What is the fan speed- 0=off, 1=low, 2=high
 double fcast_h = 84;                    // What is the forecase high for the day
 int _holdDownTimer = 0;                 // Prevent excessive cooler change operations, value is in minutes
 double lastAction = 0;                  // UNIX timestamp of the last operation change of the cooler
@@ -76,7 +76,9 @@ double lastPub   = 0;                    // Unix time of last time published to 
 void setup()
 {
     // Particle.io does these 'subscribe' operations, used to scrape data from web sources. In this case, these two lines grab the forecast high for the day.
+    delay(1500);        // Delay 1s to let the sensors settle
     Particle.subscribe("hook-response/forecastio_webhook", gotWeatherData, MY_DEVICES);
+    delay(1500);        // Delay 1s to let the sensors settle
     Particle.subscribe("doButtonControl", doButtonControl_handler, MY_DEVICES);
 
     delay(1500);        // Delay 1s to let the sensors settle
@@ -397,13 +399,16 @@ void loop()
 		return;
 	}
     
-    // If the temp drops below the comfortable temperature, turn the bloody thing off!    
-    if ( (temp_upstairs_hist[0] < _comfyTemp || temp_downstairs_hist[0] < _comfyTemp ) && _fan_speed && _holdDownTimer == 0) {
-        relayControl("PUMP");
-        pubFlow("Brr, Utmp is:" + String(temp_upstairs_hist[0]).substring(0,4) + "(" + String(temp_upstairs_avg).substring(0,4) + ") Dtmp is:" + String(temp_downstairs_hist[0]).substring(0,4) + "(" + String(temp_downstairs_avg).substring(0,4) + ")"  );
+    // If the temp drops below the comfortable temperature, turn the bloody thing off, unless upstairs is > comfytemp, and it's >5 deg warmer up there.  
+    if  ( temp_upstairs_hist[0] < _comfyTemp || temp_downstairs_hist[0] < _comfyTemp ) {
+        if (temp_upstairs_hist[0] > _comfyTemp && temp_upstairs_hist[0]-temp_downstairs_hist[0]<5){
+            if (_fan_speed > 0 && _holdDownTimer == 0) {
+                relayControl("PUMP");
+                pubFlow("Brr, Utmp is:" + String(temp_upstairs_hist[0]).substring(0,4) + "(" + String(temp_upstairs_avg).substring(0,4) + ") Dtmp is:" + String(temp_downstairs_hist[0]).substring(0,4) + "(" + String(temp_downstairs_avg).substring(0,4) + ")"  );
+            }
+        }
     } else {
         if (temp_upstairs_hist[0] > _comfyTemp && _holdDownTimer == 0) {
-        // If the temp surpasses _comfyTemp, and the forecast is hot (>80), cool it down!   
             if (temp_upstairs_hist[0] - _comfyTemp > 5){
                 if ( _fan_speed  < 2 ){
                     relayControl("COOLHIGH");
