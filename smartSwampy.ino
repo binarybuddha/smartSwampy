@@ -16,7 +16,7 @@ The relay closest to the photon is unused.
 // These variables are unique per user/installation, and will need to be changed if you impliment this code
 // This code logs to this public URL: https://thingspeak.com/channels/48967
 // Thingspeak API key
-ThingSpeakLibrary::ThingSpeak thingspeak ("YOUR KEY HERE");
+ThingSpeakLibrary::ThingSpeak thingspeak ("YOUR API KEY HERE");
 
 // Constants
 const int _comfyTemp = 68;              // This is the lowest comfortable temp, and the cutoff point when the cooler should stop cooling.
@@ -25,6 +25,7 @@ const double tempVariance = .1;         // This is the decimal percentage varian
 const double humidityVariance = .45;    // This is the decimal percentage variance for humidity (.25 = 25%), if a sensor reading is +/- this variance, it won't be used.
 
 // Cooler status vars
+bool debug = true;
 bool  _pump_on;                         // Is the water circulation pump running?
 int  _fan_speed = 0;                    // What is the fan speed- 0=off, 1=low, 2=high
 double fcast_h = 84;                    // What is the forecase high for the day
@@ -399,32 +400,57 @@ void loop()
 		return;
 	}
     
-    // If the temp drops below the comfortable temperature, turn the bloody thing off, unless upstairs is > comfytemp, and it's >5 deg warmer up there.  
-    if  ( temp_upstairs_hist[0] < _comfyTemp || temp_downstairs_hist[0] < _comfyTemp ) {
-        if (temp_upstairs_hist[0] > _comfyTemp && temp_upstairs_hist[0]-temp_downstairs_hist[0]<5){
-            if (_fan_speed > 0 && _holdDownTimer == 0) {
-                relayControl("PUMP");
-                pubFlow("Brr, Utmp is:" + String(temp_upstairs_hist[0]).substring(0,4) + "(" + String(temp_upstairs_avg).substring(0,4) + ") Dtmp is:" + String(temp_downstairs_hist[0]).substring(0,4) + "(" + String(temp_downstairs_avg).substring(0,4) + ")"  );
+    // If the temp drops below the comfortable temperature, turn the bloody thing off.
+    if (debug){
+        pubFlow("Entering main cooler operation control logic");
+    }
+    
+    if  ( temp_upstairs_hist[0] < _comfyTemp || temp_downstairs_hist[0] < (_comfyTemp-5) ) {
+        if (debug){
+            pubFlow("temp up/down < _comfyTemp");
+        }
+        if (_fan_speed > 0 && _holdDownTimer == 0) {
+            relayControl("PUMP");
+            pubFlow("Brr, Utmp is:" + String(temp_upstairs_hist[0]).substring(0,4) + "(" + String(temp_upstairs_avg).substring(0,4) + ") Dtmp is:" + String(temp_downstairs_hist[0]).substring(0,4) + "(" + String(temp_downstairs_avg).substring(0,4) + ")"  );
+        } else {
+            if (debug){
+                pubFlow("Almost went Brr, but FS wasn't > 0 or HDT !=0");
             }
         }
     } else {
+        if (debug){
+            pubFlow("temp up/down is higher than _comfyTemp");
+        }
         if (temp_upstairs_hist[0] > _comfyTemp && _holdDownTimer == 0) {
+            if (debug){
+                pubFlow("temp up> _comfyTemp && HDT==0");
+            }
             if (temp_upstairs_hist[0] - _comfyTemp > 5){
                 if ( _fan_speed  < 2 ){
                     relayControl("COOLHIGH");
+                }else{
+                    if (debug){
+                        pubFlow("COOLHIGH needed, but already running");
+                    }
                 }
             }else{
                 if ( _fan_speed != 1 ){
                     relayControl("COOLLOW");
                 } else {
-                    pubFlow("Temp<5, FANONOFF:" + String(digitalRead(FANONOFF)) + " FANHIGHLOW:" + String(digitalRead(FANHIGHLOW)) );
+                    if (debug){
+                        pubFlow("COOLLOW needed, but already running");
+                    }
                 }
             }
         } else {
             if (_holdDownTimer > 0){
-                pubFlow("Hold down timer in effect");
+                if (debug){
+                    pubFlow("Hold down timer in effect");
+                }
             } else {
-                pubFlow("No hold down nor change to cooler operation.");
+                if (debug){
+                   pubFlow("No hold down nor change to cooler operation.");
+                }
             }
         }
     }
